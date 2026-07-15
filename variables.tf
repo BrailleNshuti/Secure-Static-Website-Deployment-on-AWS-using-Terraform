@@ -7,5 +7,5 @@ variable "aws_region" {
 # Bucket name
 variable "s3_bucket_name" {
   description = "Name of the S3 bucket"
-  default = "ahmets3bucket"
+  default = "braille12345"
 }
