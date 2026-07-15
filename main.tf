@@ -1,50 +1,90 @@
+# Sets server
 provider "aws" {
-    alias  = "central"
   region = var.aws_region
 }
 
-# Generate a key pair
-resource "tls_private_key" "ec2_key" {
-  algorithm = "RSA"
-  rsa_bits  = 4096
+
+resource "aws_s3_bucket_policy" "public_policy" {
+  bucket = aws_s3_bucket.s3bucket.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadGetObject"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.s3bucket.arn}/*"
+      }
+    ]
+  })
+}
+
+# Creats the bucket
+resource "aws_s3_bucket" "s3bucket" {
+  bucket = var.s3_bucket_name 
+
+
+  tags = {
+    Name        = "StaticWebsite"
+    Environment = "Dev"
+  }
+
 }
 
 
-resource "aws_key_pair" "deployer" {
-  key_name   = "ec2-key"
-  public_key = tls_private_key.ec2_key.public_key_openssh
+resource "aws_s3_bucket_public_access_block" "allow_public" {
+  bucket = aws_s3_bucket.s3bucket.id
+
+  block_public_acls   = false
+  block_public_policy = false
+  ignore_public_acls  = false
+  restrict_public_buckets = false
 }
 
-# Save private key locally
-resource "local_file" "private_key" {
-  filename = "${path.module}/ec2-key.pem"
-  content  = tls_private_key.ec2_key.private_key_pem
-  file_permission = "0400"
-}
 
-resource "aws_instance" "web_test" {
-  ami           = var.ec2_ami
-  instance_type = var.instance_type
-  key_name      = aws_key_pair.deployer.key_name
-}
+# 2. Configure static website hosting (NEW resource)
+resource "aws_s3_bucket_website_configuration" "website_config" {
+  bucket = aws_s3_bucket.s3bucket.id
 
-resource "aws_security_group" "ssh_access" {
-  name   = "allow_ssh"
-  vpc_id = var.vpc_id # Replace with your VPC ID
+  index_document {
+    suffix = "index.html"
+  }
 
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # Allow from anywhere (use cautiously)
+  error_document {
+    key = "error.html"
   }
 }
 
 
+
+
+#  Upload index.html
+resource "aws_s3_object" "index" {
+  bucket = aws_s3_bucket.s3bucket.id
+  key    = "index.html"
+  source = "${path.module}/index.html"
+  content_type = "text/html"
+}
+
+# Upload error.html
+resource "aws_s3_object" "error" {
+  bucket = aws_s3_bucket.s3bucket.id
+  key    = "error.html"
+  source = "${path.module}/error.html"
+  content_type = "text/html"
+}
+
+
+
+
+
+
 resource "aws_cloudfront_distribution" "cdn" {
   origin {
-    domain_name = aws_instance.web_test.public_dns 
-    origin_id   = "EC2Origin"
+    domain_name = aws_s3_bucket.s3bucket.bucket_regional_domain_name
+    origin_id   = "s3-origin"
 
     custom_origin_config {
       http_port              = 80
@@ -60,7 +100,7 @@ resource "aws_cloudfront_distribution" "cdn" {
   default_cache_behavior {
     allowed_methods  = ["GET", "HEAD"]
     cached_methods   = ["GET", "HEAD"]
-    target_origin_id = "EC2Origin"
+    target_origin_id = "s3-origin"
 
     forwarded_values {
       query_string = false
@@ -84,12 +124,4 @@ resource "aws_cloudfront_distribution" "cdn" {
 }
 
 
-output "cloudfront_url" {
-  description = "CloudFront Distribution Domain Name"
-  value       = aws_cloudfront_distribution.cdn.domain_name
-}
 
-
-output "instance_public_ip" {
-  value = aws_instance.web_test.public_ip
-}
