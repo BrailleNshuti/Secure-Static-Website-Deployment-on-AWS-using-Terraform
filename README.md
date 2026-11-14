@@ -11,16 +11,16 @@ flowchart LR
 ```
 
 ### Provisioned Resources (main.tf)
-- **ws_s3_bucket.s3bucket**: S3 bucket tagged (Name = StaticWebsite, Environment = Dev) storing index.html and error.html.
-- **ws_s3_bucket_website_configuration.website_config**: Configures index.html as the root document and error.html for 4xx/5xx routing.
-- **ws_s3_bucket_public_access_block.allow_public & ws_s3_bucket_policy.public_policy**: Grants read-only s3:GetObject access on ${aws_s3_bucket.s3bucket.arn}/*.
-- **ws_cloudfront_distribution.cdn**: Global edge distribution enforcing edirect-to-https for viewers, caching GET/HEAD requests without forwarding cookies or query strings.
+- **aws_s3_bucket.s3bucket**: S3 bucket tagged (Name = StaticWebsite, Environment = Dev) storing index.html and error.html.
+- **aws_s3_bucket_website_configuration.website_config**: Configures index.html as the root document and error.html for 4xx/5xx routing.
+- **aws_s3_bucket_public_access_block.allow_public & aws_s3_bucket_policy.public_policy**: Grants read-only s3:GetObject access on ${aws_s3_bucket.s3bucket.arn}/*.
+- **aws_cloudfront_distribution.cdn**: Global edge distribution enforcing edirect-to-https for viewers, caching GET/HEAD requests without forwarding cookies or query strings.
 
 ## How to Deploy
 
 ### Prerequisites
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.0
-- AWS CLI configured with least-privilege IAM credentials (ws configure)
+- AWS CLI configured with least-privilege IAM credentials (aws configure)
 
 ### Steps
 1. **Clone the repository**
@@ -54,9 +54,9 @@ flowchart LR
 
 ## Security Choices & Production Hardening
 
-1. **Viewer HTTPS Enforcement**: CloudFront sets iewer_protocol_policy = "redirect-to-https", ensuring clients never browse over unencrypted HTTP.
-2. **Minimal Attack Surface**: Only GET and HEAD methods are allowed at the CDN edge; cookies and query strings are stripped (orward = "none") to maximize cache hit ratio and prevent cache-key poisoning.
+1. **Viewer HTTPS Enforcement**: CloudFront sets `viewer_protocol_policy = "redirect-to-https"`, ensuring clients never browse over unencrypted HTTP.
+2. **Minimal Attack Surface**: Only GET and HEAD methods are allowed at the CDN edge; cookies and query strings are stripped (`forward = "none"`) to maximize cache hit ratio and prevent cache-key poisoning.
 3. **No Hardcoded Credentials**: The AWS provider reads credentials strictly from the environment or shared AWS credentials profile, and .gitignore excludes .terraform/, *.tfstate, and *.tfvars.
 4. **Public S3 Website Endpoint vs. CloudFront Origin Access Control (OAC)**:
    - *Current lab configuration (main.tf)*: Uses S3 static website hosting with a read-only s3:GetObject bucket policy so both the direct S3 website endpoint and CloudFront URL can be inspected side-by-side.
-   - *Production hardening path*: Set all four ws_s3_bucket_public_access_block flags to 	rue, replace the custom HTTP origin with ws_cloudfront_origin_access_control (SigV4 signing), and restrict the S3 bucket policy principal strictly to cloudfront.amazonaws.com (AWS:SourceArn matching the distribution ARN) so users cannot bypass CloudFront.
+   - *Production hardening path*: Set all four aws_s3_bucket_public_access_block flags to 	rue, replace the custom HTTP origin with aws_cloudfront_origin_access_control (SigV4 signing), and restrict the S3 bucket policy principal strictly to cloudfront.amazonaws.com (AWS:SourceArn matching the distribution ARN) so users cannot bypass CloudFront.
