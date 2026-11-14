@@ -1,130 +1,62 @@
-# 🚀 AWS S3 Static Website with CloudFront (Terraform)
+# AWS S3 + CloudFront Static Website Deployment with Terraform
 
-This repository contains Terraform code to provision a **static website hosted on AWS S3** with **public access**, and **CloudFront CDN distribution** for global delivery.
+Reproducible Infrastructure-as-Code (IaC) configuration that provisions an Amazon S3 static website fronted by an Amazon CloudFront global CDN distribution using Terraform.
 
----
-
-## 📌 Features
-
-- ✅ Creates an **S3 bucket** with tags for environment management.  
-- ✅ Enables **public access** with appropriate bucket policies.  
-- ✅ Configures **S3 static website hosting** with `index.html` and `error.html`.  
-- ✅ Uploads static files (`index.html`, `error.html`) directly via Terraform.  
-- ✅ Sets up a **CloudFront distribution** with HTTPS and caching.  
-- ✅ Provides outputs for direct **S3 website URL** and **CloudFront CDN URL**.  
-
----
-
-## 🏗️ Architecture
+## Architecture
 
 ```mermaid
-flowchart TD
-    User((User)) -->|HTTPS Request| CloudFront[CloudFront Distribution]
-    CloudFront -->|Fetch Content| S3Bucket[S3 Static Website Bucket]
-    S3Bucket -->|index.html / error.html| CloudFront
-    CloudFront -->|Cached Response| User
+flowchart LR
+    User["Client Browser"] -->|"HTTPS (TLS 1.2+)"| CF["Amazon CloudFront CDN\n(redirect-to-https, GET/HEAD cached)"]
+    CF -->|"Origin Fetch"| S3["Amazon S3 Bucket\n(index.html / error.html)"]
 ```
 
-This setup ensures:
-- Global, low-latency delivery via CloudFront.  
-- Resilient hosting with S3 static website hosting.  
-- Secure HTTPS with automatic redirects.  
+### Provisioned Resources (main.tf)
+- **ws_s3_bucket.s3bucket**: S3 bucket tagged (Name = StaticWebsite, Environment = Dev) storing index.html and error.html.
+- **ws_s3_bucket_website_configuration.website_config**: Configures index.html as the root document and error.html for 4xx/5xx routing.
+- **ws_s3_bucket_public_access_block.allow_public & ws_s3_bucket_policy.public_policy**: Grants read-only s3:GetObject access on ${aws_s3_bucket.s3bucket.arn}/*.
+- **ws_cloudfront_distribution.cdn**: Global edge distribution enforcing edirect-to-https for viewers, caching GET/HEAD requests without forwarding cookies or query strings.
 
----
+## How to Deploy
 
-## 🛠️ Prerequisites
+### Prerequisites
+- [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.0
+- AWS CLI configured with least-privilege IAM credentials (ws configure)
 
-- [Terraform](https://developer.hashicorp.com/terraform/downloads) ≥ 1.0  
-- AWS CLI configured with valid credentials (`aws configure`)  
-- An AWS account with permissions for **S3** and **CloudFront**  
-
----
-
-## ⚙️ Variables
-
-This configuration expects the following variables:
-
-| Variable         | Description                           | Example             |
-|------------------|---------------------------------------|---------------------|
-| `aws_region`     | AWS region for resources              | `us-east-1`         |
-| `s3_bucket_name` | Name of the S3 bucket (must be unique)| `my-static-website` |
-
-You can define them in a `variables.tf` file:
-
-```hcl
-aws_region     = "us-east-1"
-s3_bucket_name = "my-unique-static-site-123"
-```
-
----
-
-## 🚀 Deployment Steps
-
-1. **Clone this repository**
+### Steps
+1. **Clone the repository**
    ```bash
-   git clone git@github.com:Ahmetnasri/Project-AWS.git
-   cd Project-AWS
-   git checkout S3
+   git clone https://github.com/BrailleNshuti/Secure-Static-Website-Deployment-on-AWS-using-Terraform.git
+   cd Secure-Static-Website-Deployment-on-AWS-using-Terraform
    ```
-
-2. **Initialize Terraform**
+2. **Initialize and validate**
    ```bash
    terraform init
-   ```
-
-3. **Validate configuration**
-   ```bash
+   terraform fmt -check
    terraform validate
    ```
-
-4. **Plan the changes**
+3. **Plan and apply**
    ```bash
-   terraform plan
+   terraform plan -var="aws_region=eu-central-1" -var="s3_bucket_name=<unique-bucket-name>" -out=tfplan
+   terraform apply tfplan
+   ```
+4. **Tear down when finished**
+   ```bash
+   terraform destroy -var="aws_region=eu-central-1" -var="s3_bucket_name=<unique-bucket-name>"
    ```
 
-5. **Apply the configuration**
-   ```bash
-   terraform apply
-   ```
+## Cost Breakdown (EU-Central-1 / US-East-1)
 
----
+| Service | Pricing Dimension | Low-Traffic / Portfolio Estimate |
+|---|---|---|
+| **Amazon S3** | Storage ($0.023/GB/mo) + GET requests ($0.0004 / 1,000) | < .05 / month (< 10 MB assets) |
+| **Amazon CloudFront** | First **1 TB/month** data transfer out + **10,000,000** HTTP/HTTPS requests | **$0.00 / month** (AWS Free Tier always-free allowance) |
+| **Total** | Idle / portfolio traffic (< 10k visits/mo) | **< $0.10 / month** |
 
-## 🌐 Outputs
+## Security Choices & Production Hardening
 
-After deployment, Terraform will provide:
-
-- **S3 URL (direct access):**  
-  ```
-  https://<bucket-name>.s3.<region>.amazonaws.com/index.html
-  ```
-- **CloudFront CDN URL (recommended):**  
-  ```
-  https://<cloudfront-domain-name>/
-  ```
-
----
-
-## 📂 Project Structure
-
-```
-├── main.tf           # Terraform configuration
-├── variables.tf      # Variable definitions
-├── outputs.tf        # Output values
-├── index.html        # Default homepage
-├── error.html        # Custom error page
-└── README.md         # Project documentation
-```
-
----
-
-## 🧹 Cleanup
-
-To destroy all resources:
-
-```bash
-terraform destroy -auto-approve
-```
-
-⚠️ **Note:** This will permanently delete the S3 bucket and all uploaded files.
-
----
+1. **Viewer HTTPS Enforcement**: CloudFront sets iewer_protocol_policy = "redirect-to-https", ensuring clients never browse over unencrypted HTTP.
+2. **Minimal Attack Surface**: Only GET and HEAD methods are allowed at the CDN edge; cookies and query strings are stripped (orward = "none") to maximize cache hit ratio and prevent cache-key poisoning.
+3. **No Hardcoded Credentials**: The AWS provider reads credentials strictly from the environment or shared AWS credentials profile, and .gitignore excludes .terraform/, *.tfstate, and *.tfvars.
+4. **Public S3 Website Endpoint vs. CloudFront Origin Access Control (OAC)**:
+   - *Current lab configuration (main.tf)*: Uses S3 static website hosting with a read-only s3:GetObject bucket policy so both the direct S3 website endpoint and CloudFront URL can be inspected side-by-side.
+   - *Production hardening path*: Set all four ws_s3_bucket_public_access_block flags to 	rue, replace the custom HTTP origin with ws_cloudfront_origin_access_control (SigV4 signing), and restrict the S3 bucket policy principal strictly to cloudfront.amazonaws.com (AWS:SourceArn matching the distribution ARN) so users cannot bypass CloudFront.
